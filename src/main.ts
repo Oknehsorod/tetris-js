@@ -1,7 +1,9 @@
 const tetrisCanvas = document.getElementById("tetris") as HTMLCanvasElement;
+const tNextCanvas = document.getElementById("tetris-next") as HTMLCanvasElement;
 const counter = document.getElementById("counter") as HTMLDivElement;
 const reset = document.getElementById("reset") as HTMLButtonElement;
-const ctx = tetrisCanvas.getContext("2d");
+const tCtx = tetrisCanvas.getContext("2d");
+const tNCtx = tNextCanvas.getContext("2d");
 
 type TData = (TType | TEmpty)[][];
 type TType = "ll" | "rl" | "c" | "s" | "lz" | "rz" | "p";
@@ -16,7 +18,7 @@ type TFRotate = "rotate";
 type KeyboardData = [string, (event: KeyboardEvent) => void];
 interface GameAdapter {
   control: (move: (to: TFMove | TFRotate) => boolean) => KeyboardData;
-  render: (data: TData, counter: number) => void;
+  render: (data: TData, counter: number, next: TType) => void;
 }
 
 class Tetris {
@@ -33,17 +35,20 @@ class Tetris {
   adapter: GameAdapter;
 
   currentFigure: TetrisFigure;
+  nextFigure: TType;
 
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height + 2;
-    this.createEmptyField();
+    this.staticField = Tetris.createEmptyField(this.height, this.width);
   }
 
-  createEmptyField = () => {
-    this.staticField = new Array(this.height).fill(
-      new Array(this.width).fill(" ")
-    );
+  static createEmptyField = (height: number, width: number): TData => {
+    let arr = [];
+    for (let i = 0; i < height; i += 1) {
+      arr.push(new Array(width).fill(" "));
+    }
+    return arr;
   };
 
   getRandFigName = (): TType => {
@@ -105,13 +110,18 @@ class Tetris {
       });
 
       this.currentFigure = new TetrisFigure(
-        this.getRandFigName(),
+        this.nextFigure,
         Math.floor(this.width / 2),
         0
       );
+      this.nextFigure = this.getRandFigName();
     }
 
-    this.adapter.render(this.dinamicField.slice(1), this.count);
+    this.adapter.render(
+      this.dinamicField.slice(1),
+      this.count,
+      this.nextFigure
+    );
   };
 
   run = (adapter: GameAdapter) => {
@@ -122,6 +132,7 @@ class Tetris {
       Math.floor(this.width / 2),
       0
     );
+    this.nextFigure = this.getRandFigName();
 
     this.keyboardData = adapter.control(this.moveCurrentFigure);
 
@@ -140,7 +151,7 @@ class Tetris {
     this.currentFigure = null;
     this.run(this.adapter);
     this.count = 0;
-    this.createEmptyField();
+    this.staticField = Tetris.createEmptyField(this.height, this.width);
   };
 }
 
@@ -158,7 +169,17 @@ class TetrisFigure {
     });
   }
 
-  getNewFigure(type: TType, x: number, y: number): TFCoords {
+  constructor(type: TType, x: number, y: number) {
+    this.type = type;
+    this.x = x;
+    this.y = y;
+
+    const figureAllVariants = TetrisFigure.getNewFigure(type);
+    this.allVariants = figureAllVariants;
+    this.data = figureAllVariants[0];
+  }
+
+  static getNewFigure(type: TType): TFCoords[] {
     // prettier-ignore
     const variants: Record<TType, TFCoords[]> = {
       ll: [[[1, 0], [1, 1], [1, 2], [0, 2]], [[0, 0], [0, 1], [1, 1], [2, 1]],
@@ -173,16 +194,7 @@ class TetrisFigure {
       c:  [[[0, 0], [0, 1], [1, 1], [1, 0]]],
     };
 
-    this.allVariants = variants[type];
-
-    return variants[type][0];
-  }
-
-  constructor(type: TType, x: number, y: number) {
-    this.type = type;
-    this.x = x;
-    this.y = y;
-    this.data = this.getNewFigure(type, x, y);
+    return variants[type];
   }
 
   rotate(reverse?: boolean) {
@@ -260,11 +272,22 @@ const gameOptions = {
 
 const game = new Tetris(gameOptions.width, gameOptions.height);
 
-const renderCanvas = (data: TData, count: number) => {
+const renderCanvas = (data: TData, count: number, next: TType) => {
   counter.innerText = "Count: " + count;
+
   tetrisCanvas.width = gameOptions.cellSize * gameOptions.width;
   tetrisCanvas.height = gameOptions.cellSize * gameOptions.height;
-  data.forEach((row, rowIndex) => {
+
+  const nextData = Tetris.createEmptyField(4, 4);
+  TetrisFigure.getNewFigure(next)[0].forEach(([x, y]) => {
+    nextData[y][x] = next;
+  });
+  console.log(nextData);
+
+  tNextCanvas.width = gameOptions.cellSize * nextData[0].length;
+  tNextCanvas.height = gameOptions.cellSize * nextData.length;
+
+  const render = (ctx) => (row, rowIndex) => {
     row.forEach((cell, cellIndex) => {
       const colors: Record<TType | TEmpty, string> = {
         " ": "#121212",
@@ -284,7 +307,10 @@ const renderCanvas = (data: TData, count: number) => {
         gameOptions.cellSize
       );
     });
-  });
+  };
+
+  data.forEach(render(tCtx));
+  nextData.forEach(render(tNCtx));
 };
 
 const control = (move: (to: TFMove | TFRotate) => boolean): KeyboardData => {

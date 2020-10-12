@@ -8,8 +8,13 @@ body {
   height: 100vh;
 }
 
-#tetris {
+#tetris,
+#tetris-next {
   border: 1px solid #777;
+}
+
+#tetris-next {
+  margin-bottom: auto;
 }
 
 .main-grid {
@@ -21,7 +26,12 @@ body {
 }
 
 .sidebar {
-  margin: 20px;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  height: calc(100% - 20px);
 }
 
 .sidebar > * {
