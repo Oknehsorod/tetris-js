@@ -3,24 +3,25 @@ const counter = document.getElementById("counter") as HTMLDivElement;
 const reset = document.getElementById("reset") as HTMLButtonElement;
 const ctx = tetrisCanvas.getContext("2d");
 
-type TetrisData = (TetrisType | " ")[][];
-type TetrisType = "ll" | "rl" | "c" | "s" | "lz" | "rz" | "p";
+type TData = (TType | TEmpty)[][];
+type TType = "ll" | "rl" | "c" | "s" | "lz" | "rz" | "p";
+type TEmpty = " ";
 
-type TetrisFigures = TetrisFigure[];
-type TetrisFigureCoord = [number, number];
-type TetrisFigureCoords = TetrisFigureCoord[];
-type TetrisFigureMove = "left" | "right" | "down" | "up";
-type TetrisFigureRotate = "rotate";
+type TFigures = TetrisFigure[];
+type TFCoord = [number, number];
+type TFCoords = TFCoord[];
+type TFMove = "left" | "right" | "down" | "up";
+type TFRotate = "rotate";
 
+type KeyboardData = [string, (event: KeyboardEvent) => void];
 interface GameAdapter {
-  control: (move) => void;
-  render: (data: TetrisData, counter: number) => void;
+  control: (move: (to: TFMove | TFRotate) => boolean) => KeyboardData;
+  render: (data: TData, counter: number) => void;
 }
 
 class Tetris {
-  staticField: TetrisData;
-  data: TetrisData;
-  adapter: GameAdapter;
+  staticField: TData;
+  dinamicField: TData;
 
   width: number;
   height: number;
@@ -28,24 +29,29 @@ class Tetris {
   count: number = 0;
 
   intervalID: number;
+  keyboardData: KeyboardData;
+  adapter: GameAdapter;
 
   currentFigure: TetrisFigure;
-  figures: TetrisFigures = [];
 
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height + 2;
+    this.createEmptyField();
+  }
+
+  createEmptyField = () => {
     this.staticField = new Array(this.height).fill(
       new Array(this.width).fill(" ")
     );
-  }
+  };
 
-  getRandomFigure = (): TetrisType => {
-    const variants: TetrisType[] = ["ll", "rl", "c", "s", "lz", "rz", "p"];
+  getRandFigName = (): TType => {
+    const variants: TType[] = ["ll", "rl", "c", "s", "lz", "rz", "p"];
     return variants[Math.floor(Math.random() * variants.length)];
   };
 
-  moveCurrentFigure(to: TetrisFigureMove | TetrisFigureRotate): boolean {
+  moveCurrentFigure = (to: TFMove | TFRotate): boolean => {
     const nextCoord = this.currentFigure.check(to);
 
     let borderCollapse = false;
@@ -53,11 +59,11 @@ class Tetris {
 
     nextCoord.forEach((coord) => {
       const [x, y] = coord;
-      // Check border
+
       if (x === this.width || x < 0 || y === this.height - 1) {
         borderCollapse = true;
       }
-      // Check another figures
+
       if (this.staticField[y][x] !== " ") {
         anotherFigure = true;
       }
@@ -68,240 +74,103 @@ class Tetris {
         this.currentFigure.rotate();
         return true;
       }
+
       this.currentFigure.move(to);
+
       return true;
     }
     return false;
-  }
+  };
+
+  update = () => {
+    this.dinamicField = this.staticField.map((row) => [...row]);
+    this.currentFigure.formattedData.forEach((coord) => {
+      this.dinamicField[coord[1]][coord[0]] = this.currentFigure.type;
+    });
+
+    if (!this.moveCurrentFigure("down")) {
+      this.staticField = this.dinamicField;
+
+      if (this.staticField[0].some((type) => type !== " ")) {
+        this.stop();
+        return;
+      }
+
+      this.staticField.forEach((row, idx) => {
+        if (row.every((type) => type !== " ")) {
+          this.staticField.splice(idx, 1);
+          this.staticField.unshift(new Array(this.width).fill(" "));
+          this.count += 1;
+        }
+      });
+
+      this.currentFigure = new TetrisFigure(
+        this.getRandFigName(),
+        Math.floor(this.width / 2),
+        0
+      );
+    }
+
+    this.adapter.render(this.dinamicField.slice(1), this.count);
+  };
 
   run = (adapter: GameAdapter) => {
     this.adapter = adapter;
 
     this.currentFigure = new TetrisFigure(
-      this.getRandomFigure(),
+      this.getRandFigName(),
       Math.floor(this.width / 2),
       0
     );
 
-    window.addEventListener("keydown", (event) => {
-      const variants: Record<string, TetrisFigureMove | TetrisFigureRotate> = {
-        ArrowLeft: "left",
-        ArrowRight: "right",
-        ArrowUp: "rotate",
-      };
+    this.keyboardData = adapter.control(this.moveCurrentFigure);
 
-      if (event.key === " ") {
-        for (let i = 0; i < this.height; i += 1) {
-          this.moveCurrentFigure("down");
-        }
-        return;
-      }
-
-      const variant = variants[event.code];
-      this.moveCurrentFigure(variant);
-    });
-
-    this.intervalID = setInterval(() => {
-      this.data = this.staticField.map((row) => [...row]);
-      this.currentFigure.formattedData.forEach((coord) => {
-        this.data[coord[1]][coord[0]] = this.currentFigure.type;
-      });
-
-      if (!this.moveCurrentFigure("down")) {
-        this.staticField = this.data;
-
-        // Game Over check
-        if (this.staticField[0].some((type) => type !== " ")) {
-          this.stop();
-          return;
-        }
-
-        // Check completed line
-        const completedLineIdxs = [];
-        this.staticField.forEach((row, idx) => {
-          if (row.every((type) => type !== " ")) {
-            completedLineIdxs.push(idx);
-          }
-        });
-        completedLineIdxs.forEach((idx) => {
-          this.staticField.splice(idx, 1);
-          this.staticField.unshift(new Array(this.width).fill(" "));
-        });
-        this.count += completedLineIdxs.length;
-
-        this.currentFigure = new TetrisFigure(
-          this.getRandomFigure(),
-          Math.floor(this.width / 2),
-          0
-        );
-      }
-
-      this.adapter.render(this.data.slice(1), this.count);
-    }, 1000 / 15);
+    this.intervalID = setInterval(this.update, 1000 / 15);
   };
 
   stop = () => {
     clearInterval(this.intervalID);
+    window.removeEventListener(...this.keyboardData);
   };
 
   reset = () => {
     this.stop();
-    this.data = [];
+    this.dinamicField = [];
     this.intervalID = null;
     this.currentFigure = null;
-    this.figures = [];
     this.run(this.adapter);
     this.count = 0;
-    this.staticField = new Array(this.height).fill(
-      new Array(this.width).fill(" ")
-    );
+    this.createEmptyField();
   };
 }
 
 class TetrisFigure {
-  data: TetrisFigureCoords;
-  type: TetrisType;
-  allVariants: TetrisFigureCoords[];
+  data: TFCoords;
+  type: TType;
+  allVariants: TFCoords[];
   x: number;
   y: number;
   rotateIndex: number = 0;
 
-  get formattedData(): TetrisFigureCoords {
+  get formattedData(): TFCoords {
     return this.data.map((coord) => {
       return [coord[0] + this.x, coord[1] + this.y];
     });
   }
 
-  getNewFigure(type: TetrisType, x: number, y: number): TetrisFigureCoords {
-    const variants: Record<TetrisType, TetrisFigureCoords[]> = {
-      ll: [
-        [
-          [1, 0],
-          [1, 1],
-          [1, 2],
-          [0, 2],
-        ],
-        [
-          [0, 0],
-          [0, 1],
-          [1, 1],
-          [2, 1],
-        ],
-        [
-          [0, 0],
-          [1, 0],
-          [0, 1],
-          [0, 2],
-        ],
-        [
-          [0, 0],
-          [1, 0],
-          [2, 0],
-          [2, 1],
-        ],
-      ],
-      rl: [
-        [
-          [0, 0],
-          [0, 1],
-          [0, 2],
-          [1, 2],
-        ],
-        [
-          [0, 0],
-          [1, 0],
-          [2, 0],
-          [0, 1],
-        ],
-        [
-          [0, 0],
-          [1, 0],
-          [1, 1],
-          [1, 2],
-        ],
-        [
-          [2, 0],
-          [2, 1],
-          [1, 1],
-          [0, 1],
-        ],
-      ],
-      lz: [
-        [
-          [1, 1],
-          [2, 1],
-          [2, 2],
-          [3, 2],
-        ],
-        [
-          [3, 0],
-          [3, 1],
-          [2, 1],
-          [2, 2],
-        ],
-      ],
-      rz: [
-        [
-          [2, 1],
-          [3, 1],
-          [2, 2],
-          [1, 2],
-        ],
-        [
-          [2, 0],
-          [2, 1],
-          [3, 1],
-          [3, 2],
-        ],
-      ],
-      p: [
-        [
-          [1, 0],
-          [1, 1],
-          [0, 1],
-          [2, 1],
-        ],
-        [
-          [0, 0],
-          [0, 1],
-          [0, 2],
-          [1, 1],
-        ],
-        [
-          [0, 0],
-          [1, 0],
-          [2, 0],
-          [1, 1],
-        ],
-        [
-          [1, 0],
-          [1, 1],
-          [1, 2],
-          [0, 1],
-        ],
-      ],
-      c: [
-        [
-          [0, 0],
-          [0, 1],
-          [1, 1],
-          [1, 0],
-        ],
-      ],
-      s: [
-        [
-          [0, 1],
-          [1, 1],
-          [2, 1],
-          [3, 1],
-        ],
-        [
-          [2, 0],
-          [2, 1],
-          [2, 2],
-          [2, 3],
-        ],
-      ],
+  getNewFigure(type: TType, x: number, y: number): TFCoords {
+    // prettier-ignore
+    const variants: Record<TType, TFCoords[]> = {
+      ll: [[[1, 0], [1, 1], [1, 2], [0, 2]], [[0, 0], [0, 1], [1, 1], [2, 1]],
+           [[0, 0], [1, 0], [0, 1], [0, 2]], [[0, 0], [1, 0], [2, 0], [2, 1]]],
+      rl: [[[0, 0], [0, 1], [0, 2], [1, 2]], [[0, 0], [1, 0], [2, 0], [0, 1]],
+           [[0, 0], [1, 0], [1, 1], [1, 2]], [[2, 0], [2, 1], [1, 1], [0, 1]]],
+      p:  [[[1, 0], [1, 1], [0, 1], [2, 1]], [[0, 0], [0, 1], [0, 2], [1, 1]],
+           [[0, 0], [1, 0], [2, 0], [1, 1]], [[1, 0], [1, 1], [1, 2], [0, 1]]],
+      lz: [[[1, 1], [2, 1], [2, 2], [3, 2]], [[3, 0], [3, 1], [2, 1], [2, 2]]],
+      rz: [[[2, 1], [3, 1], [2, 2], [1, 2]], [[2, 0], [2, 1], [3, 1], [3, 2]]],
+      s:  [[[0, 1], [1, 1], [2, 1], [3, 1]], [[2, 0], [2, 1], [2, 2], [2, 3]]],
+      c:  [[[0, 0], [0, 1], [1, 1], [1, 0]]],
     };
 
     this.allVariants = variants[type];
@@ -309,7 +178,7 @@ class TetrisFigure {
     return variants[type][0];
   }
 
-  constructor(type: TetrisType, x: number, y: number) {
+  constructor(type: TType, x: number, y: number) {
     this.type = type;
     this.x = x;
     this.y = y;
@@ -317,7 +186,7 @@ class TetrisFigure {
   }
 
   rotate(reverse?: boolean) {
-    const maxIndex: Record<TetrisType, number> = {
+    const maxIndex: Record<TType, number> = {
       c: 0,
       s: 1,
       lz: 1,
@@ -344,13 +213,14 @@ class TetrisFigure {
     }
     this.data = this.allVariants[this.rotateIndex];
   }
-  check(to: TetrisFigureMove | TetrisFigureRotate): TetrisFigureCoords {
-    const reverse: Record<TetrisFigureMove, TetrisFigureMove> = {
+  check(to: TFMove | TFRotate): TFCoords {
+    const reverse: Record<TFMove, TFMove> = {
       up: "down",
       down: "up",
       left: "right",
       right: "left",
     };
+
     let result;
     if (to === "rotate") {
       this.rotate();
@@ -364,7 +234,7 @@ class TetrisFigure {
     this.move(reverse[to]);
     return result;
   }
-  move(to: TetrisFigureMove) {
+  move(to: TFMove) {
     switch (to) {
       case "up":
         this.y -= 1;
@@ -380,11 +250,6 @@ class TetrisFigure {
         return;
     }
   }
-  destroy(coord: TetrisFigureCoord) {
-    this.data = this.data.filter(
-      (c) => c[0] + this.x !== coord[0] || c[1] + this.y !== coord[1]
-    );
-  }
 }
 
 const gameOptions = {
@@ -395,13 +260,13 @@ const gameOptions = {
 
 const game = new Tetris(gameOptions.width, gameOptions.height);
 
-const renderCanvas = (data, counter) => {
-  counter.innerText = "Count: " + counter;
+const renderCanvas = (data: TData, count: number) => {
+  counter.innerText = "Count: " + count;
   tetrisCanvas.width = gameOptions.cellSize * gameOptions.width;
   tetrisCanvas.height = gameOptions.cellSize * gameOptions.height;
   data.forEach((row, rowIndex) => {
     row.forEach((cell, cellIndex) => {
-      const colors: Record<TetrisType | " ", string> = {
+      const colors: Record<TType | TEmpty, string> = {
         " ": "#121212",
         ll: "#4caf50",
         rl: "#e91e63",
@@ -422,11 +287,36 @@ const renderCanvas = (data, counter) => {
   });
 };
 
+const control = (move: (to: TFMove | TFRotate) => boolean): KeyboardData => {
+  const handler = (event: KeyboardEvent) => {
+    const variants: Record<string, TFMove | TFRotate> = {
+      ArrowLeft: "left",
+      ArrowRight: "right",
+      ArrowUp: "rotate",
+    };
+
+    if (event.key === " ") {
+      for (let i = 0; i < gameOptions.height; i += 1) {
+        move("down");
+      }
+      return;
+    }
+
+    const variant = variants[event.code];
+    move(variant);
+  };
+  const eventType = "keydown";
+
+  window.addEventListener(eventType, handler);
+
+  return [eventType, handler];
+};
+
 reset.addEventListener("click", () => {
   game.reset();
 });
 
 game.run({
   render: renderCanvas,
-  control: () => "left",
+  control,
 });
